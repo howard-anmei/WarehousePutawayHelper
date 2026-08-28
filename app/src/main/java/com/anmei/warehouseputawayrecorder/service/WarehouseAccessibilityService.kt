@@ -27,129 +27,146 @@ class WarehouseAccessibilityService : AccessibilityService() {
             "com.weilu.deer"
 
         /*
-         * 注意拼写保持和 Deer 实际控件一致：
-         *
-         * Finished Receving
+         * English
          */
-        private const val FINISHED_RECEIVING =
+        private const val FINISHED_RECEIVING_EN =
             "Finished Receving"
 
         /*
-         * Overlay Y 偏移
+         * Spanish
+         */
+        private const val FINISHED_RECEIVING_ES =
+            "Recepción finalizada"
+
+        /*
+         * Overlay 垂直偏移
+         *
+         * 之前测试好的位置。
          */
         private const val OVERLAY_Y_OFFSET =
             -48
 
         /*
-         * 页面确认延迟
+         * 页面刷新后等待确认的时间。
          */
         private const val REMOVE_CONFIRM_DELAY =
             500L
 
         /*
-         * 正常 Overlay Alpha
+         * 普通 Overlay：
+         * 白色、低透明度。
          */
-        private const val OVERLAY_ALPHA =
+        private const val NORMAL_ALPHA =
             45
 
         /*
-         * 红色可视化 Alpha
+         * 红色测试 Overlay：
+         * 用较明显的红色方便确认 Overlay
+         * 真实存在并正在拦截。
          */
-        private const val RED_OVERLAY_ALPHA =
-            120
+        private const val RED_ALPHA =
+            100
     }
 
     /*
-     * 当前 Overlay
-     */
-    private var blockerView: View? = null
-
-    /*
-     * 当前 Overlay 对应的屏幕坐标
-     */
-    private var blockerBounds: Rect? = null
-
-    /*
-     * Overlay 是否已经创建
-     */
-    private var blockerCreated = false
-
-    /*
      * ==========================================
-     * Overlay 总开关
+     * Overlay 状态
+     * ==========================================
+     */
+
+    /*
+     * Overlay 总开关。
      *
-     * 默认 ON
-     * ==========================================
+     * 默认 ON。
      */
-    private var overlayEnabled = true
+    @Volatile
+    private var overlayEnabled =
+        true
 
     /*
-     * ==========================================
-     * 红色可视化
+     * 红色可视化开关。
      *
-     * 默认 OFF
-     * ==========================================
+     * 默认 OFF。
+     *
+     * 只有 Overlay ON 时才有效。
      */
-    private var redVisualizationEnabled = false
+    @Volatile
+    private var redVisualizationEnabled =
+        false
 
     /*
-     * Deer 是否正在前台
+     * 当前 Overlay View。
      */
-    private var targetAppActive = false
+    private var blockerView: View? =
+        null
 
     /*
-     * 主线程 Handler
+     * 当前 Overlay 对应的位置。
+     */
+    private var blockerBounds: Rect? =
+        null
+
+    /*
+     * Overlay 是否已经创建。
+     */
+    private var blockerCreated =
+        false
+
+    /*
+     * Deer 是否在前台。
+     */
+    private var targetAppActive =
+        false
+
+    /*
+     * 主线程 Handler。
      */
     private val handler =
         Handler(Looper.getMainLooper())
 
     /*
-     * 延迟删除任务
+     * 延迟删除任务。
      */
-    private var pendingRemoveRunnable: Runnable? = null
+    private var pendingRemoveRunnable: Runnable? =
+        null
+
+    /*
+     * ==========================================
+     * Accessibility Service
+     * ==========================================
+     */
 
     override fun onServiceConnected() {
 
         super.onServiceConnected()
 
-        serviceInfo = serviceInfo.apply {
+        serviceInfo =
+            serviceInfo.apply {
 
-            eventTypes =
-                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
-                        AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or
-                        AccessibilityEvent.TYPE_WINDOWS_CHANGED or
-                        AccessibilityEvent.TYPE_VIEW_CLICKED
+                eventTypes =
+                    AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
+                            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or
+                            AccessibilityEvent.TYPE_WINDOWS_CHANGED or
+                            AccessibilityEvent.TYPE_VIEW_CLICKED
 
-            packageNames =
-                arrayOf(TARGET_PACKAGE)
+                packageNames =
+                    arrayOf(TARGET_PACKAGE)
 
-            feedbackType =
-                AccessibilityServiceInfo.FEEDBACK_GENERIC
+                feedbackType =
+                    AccessibilityServiceInfo.FEEDBACK_GENERIC
 
-            notificationTimeout =
-                50
+                notificationTimeout =
+                    50
 
-            flags =
-                AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
-                        AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
-        }
+                flags =
+                    AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+                            AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+            }
 
         /*
          * 注册到 OverlayController。
-         *
-         * UI 可以通过 OverlayController
-         * 控制当前 AccessibilityService。
          */
         OverlayController.attach(this)
-
-        /*
-         * 默认状态：
-         *
-         * Overlay ON
-         * 红色 OFF
-         */
-        overlayEnabled = true
-        redVisualizationEnabled = false
 
         Log.i(TAG, "==========================================")
         Log.i(
@@ -162,122 +179,29 @@ class WarehouseAccessibilityService : AccessibilityService() {
         )
         Log.i(
             TAG,
-            "MODE=FINAL OVERLAY BLOCK"
+            "Overlay enabled=$overlayEnabled"
+        )
+        Log.i(
+            TAG,
+            "Red visualization=$redVisualizationEnabled"
         )
         Log.i(
             TAG,
             "OVERLAY_Y_OFFSET=$OVERLAY_Y_OFFSET"
         )
-        Log.i(
-            TAG,
-            "REMOVE_CONFIRM_DELAY=$REMOVE_CONFIRM_DELAY"
-        )
-        Log.i(
-            TAG,
-            "OVERLAY_ALPHA=$OVERLAY_ALPHA"
-        )
-        Log.i(
-            TAG,
-            "overlayEnabled=$overlayEnabled"
-        )
-        Log.i(
-            TAG,
-            "redVisualizationEnabled=" +
-                    redVisualizationEnabled
-        )
         Log.i(TAG, "==========================================")
-    }
-
-    /*
-     * ==========================================
-     * UI → Overlay 总开关
-     * ==========================================
-     */
-    fun setOverlayEnabled(
-        enabled: Boolean
-    ) {
-
-        overlayEnabled =
-            enabled
-
-        Log.i(
-            TAG,
-            "Overlay enabled = $enabled"
-        )
 
         /*
-         * Overlay OFF：
+         * Service 启动后立即尝试扫描。
          *
-         * 1. 红色自动 OFF
-         * 2. 删除当前 Overlay
+         * 这样即使 Deer 已经在当前页面，
+         * 也不用等待下一次 AccessibilityEvent。
          */
-        if (!enabled) {
-
-            redVisualizationEnabled =
-                false
-
-            removeBlocker(
-                "OVERLAY_DISABLED_BY_UI"
-            )
-
-            return
+        handler.post {
+            if (overlayEnabled) {
+                scanCurrentWindow()
+            }
         }
-
-        /*
-         * Overlay ON：
-         *
-         * 如果 Deer 当前正在前台，
-         * 重新扫描当前页面。
-         */
-        if (targetAppActive) {
-
-            Log.i(
-                TAG,
-                "Overlay enabled by UI, scanning current window"
-            )
-
-            scanCurrentWindow()
-        }
-    }
-
-    /*
-     * ==========================================
-     * UI → 红色可视化
-     * ==========================================
-     */
-    fun setRedVisualizationEnabled(
-        enabled: Boolean
-    ) {
-
-        /*
-         * Overlay 没打开时，
-         * 红色不能开启。
-         */
-        if (!overlayEnabled) {
-
-            redVisualizationEnabled =
-                false
-
-            Log.i(
-                TAG,
-                "Red visualization ignored because Overlay is OFF"
-            )
-
-            return
-        }
-
-        redVisualizationEnabled =
-            enabled
-
-        Log.i(
-            TAG,
-            "Red visualization = $enabled"
-        )
-
-        /*
-         * 立即改变现有 Overlay 的颜色。
-         */
-        updateBlockerAppearance()
     }
 
     override fun onAccessibilityEvent(
@@ -293,9 +217,10 @@ class WarehouseAccessibilityService : AccessibilityService() {
 
         /*
          * ==========================================
-         * 1. Deer 离开
+         * 1. Deer 离开前台
          * ==========================================
          */
+
         if (packageName != TARGET_PACKAGE) {
 
             if (targetAppActive) {
@@ -325,22 +250,42 @@ class WarehouseAccessibilityService : AccessibilityService() {
         }
 
         /*
-         * Deer 当前在前台
+         * Deer 当前在前台。
          */
         targetAppActive =
             true
 
         /*
-         * 如果之前有延迟删除，
-         * Deer 又回到了有效页面。
+         * 取消之前可能存在的删除任务。
          */
         cancelPendingRemoval()
 
         /*
          * ==========================================
-         * 点击事件
+         * Overlay OFF
+         * ==========================================
+         *
+         * 即使 AccessibilityService 继续运行，
+         * 也不创建 Overlay。
+         */
+        if (!overlayEnabled) {
+
+            if (blockerCreated) {
+
+                removeBlocker(
+                    "OVERLAY_DISABLED"
+                )
+            }
+
+            return
+        }
+
+        /*
+         * ==========================================
+         * 点击事件日志
          * ==========================================
          */
+
         if (
             event.eventType ==
             AccessibilityEvent.TYPE_VIEW_CLICKED
@@ -365,9 +310,10 @@ class WarehouseAccessibilityService : AccessibilityService() {
 
         /*
          * ==========================================
-         * 扫描当前窗口
+         * 扫描当前页面
          * ==========================================
          */
+
         scanCurrentWindow()
     }
 
@@ -376,13 +322,11 @@ class WarehouseAccessibilityService : AccessibilityService() {
      */
     private fun scanCurrentWindow() {
 
-        /*
-         * Overlay OFF：
-         *
-         * Service 继续运行，
-         * 但不创建 Overlay。
-         */
         if (!overlayEnabled) {
+            return
+        }
+
+        if (!targetAppActive) {
             return
         }
 
@@ -408,8 +352,13 @@ class WarehouseAccessibilityService : AccessibilityService() {
 
         if (node == null) {
 
+            /*
+             * 当前页面暂时找不到按钮。
+             *
+             * 不立即删除。
+             */
             scheduleRemoveConfirmation(
-                "FINISHED_RECEVING_NOT_FOUND"
+                "FINISHED_RECEIVING_NOT_FOUND"
             )
 
             return
@@ -423,10 +372,15 @@ class WarehouseAccessibilityService : AccessibilityService() {
         val bounds =
             Rect()
 
-        node.getBoundsInScreen(bounds)
+        node.getBoundsInScreen(
+            bounds
+        )
 
         Log.i(TAG, "==========================================")
-        Log.i(TAG, "Finished Receving FOUND")
+        Log.i(
+            TAG,
+            "Finished Receving FOUND"
+        )
         Log.i(
             TAG,
             "className=${node.className}"
@@ -451,13 +405,21 @@ class WarehouseAccessibilityService : AccessibilityService() {
             TAG,
             "bounds=$bounds"
         )
+        Log.i(
+            TAG,
+            "overlayEnabled=$overlayEnabled"
+        )
+        Log.i(
+            TAG,
+            "redVisualizationEnabled=$redVisualizationEnabled"
+        )
         Log.i(TAG, "==========================================")
 
         blockerBounds =
             Rect(bounds)
 
         /*
-         * Overlay 不存在 → 创建
+         * Overlay 不存在 → 创建。
          */
         if (!blockerCreated) {
 
@@ -468,7 +430,7 @@ class WarehouseAccessibilityService : AccessibilityService() {
         } else {
 
             /*
-             * Overlay 已存在 → 更新
+             * Overlay 已存在 → 更新。
              */
             updateBlocker(
                 bounds
@@ -479,7 +441,17 @@ class WarehouseAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * 递归寻找 Finished Receving。
+     * ==========================================
+     * 寻找 Finished Receving
+     * ==========================================
+     *
+     * 同时支持：
+     *
+     * English:
+     * Finished Receving
+     *
+     * Spanish:
+     * Recepción finalizada
      */
     private fun findFinishedReceiving(
         node: AccessibilityNodeInfo
@@ -488,15 +460,34 @@ class WarehouseAccessibilityService : AccessibilityService() {
         val description =
             node.contentDescription
                 ?.toString()
+                ?.trim()
 
         val text =
             node.text
                 ?.toString()
+                ?.trim()
 
         if (
-            description == FINISHED_RECEIVING ||
-            text == FINISHED_RECEIVING
+            description == FINISHED_RECEIVING_EN ||
+            description == FINISHED_RECEIVING_ES ||
+            text == FINISHED_RECEIVING_EN ||
+            text == FINISHED_RECEIVING_ES
         ) {
+
+            Log.i(
+                TAG,
+                "Finished Receiving matched"
+            )
+
+            Log.i(
+                TAG,
+                "matchedText=$text"
+            )
+
+            Log.i(
+                TAG,
+                "matchedDescription=$description"
+            )
 
             return AccessibilityNodeInfo.obtain(
                 node
@@ -527,14 +518,17 @@ class WarehouseAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * 创建 Overlay。
+     * ==========================================
+     * 创建 Overlay
+     * ==========================================
      */
     private fun createBlocker(
         bounds: Rect
     ) {
 
         /*
-         * Overlay OFF 时绝对不能创建。
+         * Overlay 被关闭时，
+         * 不允许创建。
          */
         if (!overlayEnabled) {
             return
@@ -576,59 +570,25 @@ class WarehouseAccessibilityService : AccessibilityService() {
                 override fun performClick(): Boolean {
 
                     /*
-                     * 不执行任何 click。
-                     *
-                     * 不把事件继续交给
-                     * Finished Receving。
+                     * 不执行 click。
                      */
                     return true
                 }
             }
 
         /*
-         * ==========================================
-         * Overlay Drawable
-         * ==========================================
+         * 设置当前颜色。
          */
-        val drawable =
-            GradientDrawable()
-
-        drawable.shape =
-            GradientDrawable.RECTANGLE
-
-        drawable.cornerRadius =
-            22f
-
-        /*
-         * 初始正常颜色。
-         */
-        drawable.setColor(
-            Color.argb(
-                OVERLAY_ALPHA,
-                255,
-                255,
-                255
-            )
+        applyOverlayAppearance(
+            view
         )
-
-        drawable.setStroke(
-            2,
-            Color.argb(
-                80,
-                255,
-                255,
-                255
-            )
-        )
-
-        view.background =
-            drawable
 
         /*
          * ==========================================
          * 尺寸
          * ==========================================
          */
+
         val width =
             bounds.width()
                 .coerceAtLeast(1)
@@ -642,6 +602,7 @@ class WarehouseAccessibilityService : AccessibilityService() {
          * Window 参数
          * ==========================================
          */
+
         val params =
             WindowManager.LayoutParams(
                 width,
@@ -649,6 +610,11 @@ class WarehouseAccessibilityService : AccessibilityService() {
 
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
 
+                /*
+                 * 不获取焦点。
+                 *
+                 * 但是不能设置 NOT_TOUCHABLE。
+                 */
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
 
                 PixelFormat.TRANSLUCENT
@@ -664,9 +630,6 @@ class WarehouseAccessibilityService : AccessibilityService() {
             bounds.top +
                     OVERLAY_Y_OFFSET
 
-        /*
-         * 获取 WindowManager。
-         */
         val wm =
             getSystemService(
                 WINDOW_SERVICE
@@ -685,10 +648,8 @@ class WarehouseAccessibilityService : AccessibilityService() {
             blockerCreated =
                 true
 
-            /*
-             * 根据当前红色状态设置颜色。
-             */
-            updateBlockerAppearance()
+            blockerBounds =
+                Rect(bounds)
 
             Log.i(TAG, "==========================================")
             Log.i(
@@ -709,10 +670,6 @@ class WarehouseAccessibilityService : AccessibilityService() {
             )
             Log.i(
                 TAG,
-                "OVERLAY_Y_OFFSET=$OVERLAY_Y_OFFSET"
-            )
-            Log.i(
-                TAG,
                 "width=$width"
             )
             Log.i(
@@ -721,16 +678,15 @@ class WarehouseAccessibilityService : AccessibilityService() {
             )
             Log.i(
                 TAG,
+                "redVisualizationEnabled=$redVisualizationEnabled"
+            )
+            Log.i(
+                TAG,
                 "TYPE_ACCESSIBILITY_OVERLAY"
             )
             Log.i(
                 TAG,
                 "Touch events consumed=true"
-            )
-            Log.i(
-                TAG,
-                "redVisualizationEnabled=" +
-                        redVisualizationEnabled
             )
             Log.i(TAG, "==========================================")
 
@@ -745,15 +701,85 @@ class WarehouseAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * 更新 Overlay 位置和尺寸。
+     * ==========================================
+     * Overlay 外观
+     * ==========================================
+     *
+     * Red OFF:
+     *   半透明白色
+     *
+     * Red ON:
+     *   半透明红色
+     */
+    private fun applyOverlayAppearance(
+        view: View
+    ) {
+
+        val drawable =
+            GradientDrawable()
+
+        drawable.shape =
+            GradientDrawable.RECTANGLE
+
+        drawable.cornerRadius =
+            22f
+
+        if (redVisualizationEnabled) {
+
+            /*
+             * 红色测试模式。
+             */
+            drawable.setColor(
+                Color.argb(
+                    RED_ALPHA,
+                    255,
+                    0,
+                    0
+                )
+            )
+
+            drawable.setStroke(
+                3,
+                Color.RED
+            )
+
+        } else {
+
+            /*
+             * 正常透明模式。
+             */
+            drawable.setColor(
+                Color.argb(
+                    NORMAL_ALPHA,
+                    255,
+                    255,
+                    255
+                )
+            )
+
+            drawable.setStroke(
+                2,
+                Color.argb(
+                    80,
+                    255,
+                    255,
+                    255
+                )
+            )
+        }
+
+        view.background =
+            drawable
+    }
+
+    /**
+     * ==========================================
+     * 更新 Overlay
+     * ==========================================
      */
     private fun updateBlocker(
         bounds: Rect
     ) {
-
-        if (!overlayEnabled) {
-            return
-        }
 
         val view =
             blockerView
@@ -785,7 +811,17 @@ class WarehouseAccessibilityService : AccessibilityService() {
                     OVERLAY_Y_OFFSET
 
         /*
-         * 没有变化就不更新。
+         * 先更新颜色。
+         *
+         * 即使位置没变化，
+         * 红色开关也可以立即生效。
+         */
+        applyOverlayAppearance(
+            view
+        )
+
+        /*
+         * 没有位置变化就不更新 Layout。
          */
         if (
             params.width == newWidth &&
@@ -815,6 +851,9 @@ class WarehouseAccessibilityService : AccessibilityService() {
                 view,
                 params
             )
+
+            blockerBounds =
+                Rect(bounds)
 
             Log.i(
                 TAG,
@@ -848,106 +887,178 @@ class WarehouseAccessibilityService : AccessibilityService() {
 
     /**
      * ==========================================
-     * 更新 Overlay 外观
+     * Overlay 开关
      * ==========================================
+     *
+     * 由 UI / OverlayController 调用。
      */
-    private fun updateBlockerAppearance() {
+    fun setOverlayEnabled(
+        enabled: Boolean
+    ) {
 
-        val view =
-            blockerView
-                ?: return
+        handler.post {
 
-        val drawable =
-            view.background as? GradientDrawable
-                ?: return
+            Log.i(
+                TAG,
+                "setOverlayEnabled($enabled)"
+            )
 
-        if (redVisualizationEnabled) {
+            overlayEnabled =
+                enabled
 
-            /*
-             * 红色可视化：
-             *
-             * 半透明红色
-             * +
-             * 红色边框
-             */
-            drawable.setColor(
-                Color.argb(
-                    RED_OVERLAY_ALPHA,
-                    255,
-                    0,
-                    0
+            if (!enabled) {
+
+                /*
+                 * Overlay OFF 时，
+                 * 红色必须自动 OFF。
+                 */
+                redVisualizationEnabled =
+                    false
+
+                /*
+                 * 删除当前 Overlay。
+                 */
+                removeBlocker(
+                    "OVERLAY_DISABLED_BY_UI"
                 )
-            )
 
-            drawable.setStroke(
-                3,
-                Color.RED
-            )
-
-        } else {
-
-            /*
-             * 正常 Overlay：
-             *
-             * 半透明白色
-             * +
-             * 白色边框
-             */
-            drawable.setColor(
-                Color.argb(
-                    OVERLAY_ALPHA,
-                    255,
-                    255,
-                    255
+                Log.i(
+                    TAG,
+                    "Overlay OFF -> Red visualization OFF"
                 )
-            )
 
-            drawable.setStroke(
-                2,
-                Color.argb(
-                    80,
-                    255,
-                    255,
-                    255
-                )
-            )
+            } else {
+
+                /*
+                 * Overlay ON。
+                 *
+                 * 立即重新扫描。
+                 */
+                if (targetAppActive) {
+
+                    scanCurrentWindow()
+                }
+            }
         }
-
-        /*
-         * 立即刷新。
-         */
-        view.invalidate()
-
-        Log.i(
-            TAG,
-            "Overlay appearance updated: " +
-                    "red=$redVisualizationEnabled"
-        )
     }
 
     /**
-     * 延迟确认删除。
+     * ==========================================
+     * 红色可视化开关
+     * ==========================================
+     *
+     * 由 UI / OverlayController 调用。
+     *
+     * Overlay OFF 时强制保持 OFF。
+     */
+    fun setRedVisualizationEnabled(
+        enabled: Boolean
+    ) {
+
+        handler.post {
+
+            /*
+             * Overlay OFF：
+             * 红色功能不可用。
+             */
+            if (!overlayEnabled) {
+
+                redVisualizationEnabled =
+                    false
+
+                Log.i(
+                    TAG,
+                    "Red visualization ignored because Overlay is OFF"
+                )
+
+                return@post
+            }
+
+            redVisualizationEnabled =
+                enabled
+
+            Log.i(
+                TAG,
+                "setRedVisualizationEnabled($enabled)"
+            )
+
+            /*
+             * 当前 Overlay 已存在，
+             * 直接更新颜色。
+             */
+            val view =
+                blockerView
+
+            if (view != null) {
+
+                applyOverlayAppearance(
+                    view
+                )
+
+                view.invalidate()
+
+                Log.i(
+                    TAG,
+                    "Overlay appearance updated"
+                )
+
+            } else {
+
+                /*
+                 * Overlay 不存在，
+                 * 重新扫描。
+                 */
+                if (targetAppActive) {
+
+                    scanCurrentWindow()
+                }
+            }
+        }
+    }
+
+    /**
+     * ==========================================
+     * 查询状态
+     * ==========================================
+     *
+     * UI 如果以后需要显示当前状态，
+     * 可以使用这两个方法。
+     */
+    fun isOverlayEnabled(): Boolean {
+        return overlayEnabled
+    }
+
+    fun isRedVisualizationEnabled(): Boolean {
+        return redVisualizationEnabled
+    }
+
+    /**
+     * ==========================================
+     * 延迟确认删除
+     * ==========================================
      */
     private fun scheduleRemoveConfirmation(
         reason: String
     ) {
 
         /*
-         * Overlay OFF 时不处理。
-         */
-        if (!overlayEnabled) {
-            return
-        }
-
-        /*
-         * 已经没有 Overlay。
+         * Overlay 没有创建，
+         * 不需要删除。
          */
         if (!blockerCreated) {
             return
         }
 
         /*
-         * 已经有任务。
+         * Overlay 已经 OFF。
+         */
+        if (!overlayEnabled) {
+            return
+        }
+
+        /*
+         * 已经存在任务，
+         * 不重复创建。
          */
         if (pendingRemoveRunnable != null) {
             return
@@ -965,7 +1076,7 @@ class WarehouseAccessibilityService : AccessibilityService() {
                     null
 
                 /*
-                 * Overlay 在确认期间被关闭。
+                 * Overlay 已经被 UI 关闭。
                  */
                 if (!overlayEnabled) {
 
@@ -989,7 +1100,7 @@ class WarehouseAccessibilityService : AccessibilityService() {
                 }
 
                 /*
-                 * Deer 仍然在前台。
+                 * 再次获取 root。
                  */
                 val root =
                     rootInActiveWindow
@@ -1010,6 +1121,9 @@ class WarehouseAccessibilityService : AccessibilityService() {
 
                 if (node == null) {
 
+                    /*
+                     * 确认按钮已经离开页面。
+                     */
                     Log.i(
                         TAG,
                         "Finished Receving no longer found"
@@ -1022,9 +1136,9 @@ class WarehouseAccessibilityService : AccessibilityService() {
                 } else {
 
                     /*
-                     * 又找到了。
+                     * 按钮又出现了。
                      *
-                     * 说明刚才只是页面刷新。
+                     * 说明只是页面刷新。
                      */
                     val bounds =
                         Rect()
@@ -1085,15 +1199,14 @@ class WarehouseAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * 删除 Overlay。
+     * ==========================================
+     * 删除 Overlay
+     * ==========================================
      */
     private fun removeBlocker(
         reason: String
     ) {
 
-        /*
-         * 先取消延迟任务。
-         */
         cancelPendingRemoval()
 
         val view =
@@ -1151,6 +1264,11 @@ class WarehouseAccessibilityService : AccessibilityService() {
         Log.i(TAG, "==========================================")
     }
 
+    /**
+     * ==========================================
+     * Service interrupted
+     * ==========================================
+     */
     override fun onInterrupt() {
 
         Log.w(
@@ -1166,6 +1284,11 @@ class WarehouseAccessibilityService : AccessibilityService() {
         )
     }
 
+    /**
+     * ==========================================
+     * Service destroyed
+     * ==========================================
+     */
     override fun onDestroy() {
 
         Log.i(
@@ -1173,17 +1296,17 @@ class WarehouseAccessibilityService : AccessibilityService() {
             "WarehouseAccessibilityService destroyed"
         )
 
-        /*
-         * 从 Controller 中解除注册。
-         */
-        OverlayController.detach(this)
-
         targetAppActive =
             false
 
         removeBlocker(
             "SERVICE_DESTROYED"
         )
+
+        /*
+         * 从 Controller 注销。
+         */
+        OverlayController.detach(this)
 
         handler.removeCallbacksAndMessages(
             null
